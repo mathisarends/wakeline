@@ -34,7 +34,7 @@ class FakeClock:
         self._now = aware(start or datetime(2026, 1, 1, tzinfo=UTC))
         self._monotonic = 0.0
         self._sleepers: set[tuple[float, asyncio.Future[None]]] = set()
-        self._drainers: list[Callable[[], Awaitable[None]]] = []
+        self._drainers: list[Callable[[], Awaitable[int]]] = []
 
     def now(self) -> datetime:
         return self._now
@@ -54,11 +54,11 @@ class FakeClock:
         finally:
             self._sleepers.discard(sleeper)
 
-    def attach(self, drain: Callable[[], Awaitable[None]]) -> None:
+    def attach(self, drain: Callable[[], Awaitable[int]]) -> None:
         if drain not in self._drainers:
             self._drainers.append(drain)
 
-    def detach(self, drain: Callable[[], Awaitable[None]]) -> None:
+    def detach(self, drain: Callable[[], Awaitable[int]]) -> None:
         if drain in self._drainers:
             self._drainers.remove(drain)
 
@@ -77,5 +77,8 @@ class FakeClock:
         for deadline, future in tuple(self._sleepers):
             if deadline <= self._monotonic and not future.done():
                 future.set_result(None)
-        for drain in tuple(self._drainers):
-            await drain()
+        for _ in range(10000):
+            progress = sum([await drain() for drain in tuple(self._drainers)])
+            if not progress:
+                return
+        raise RuntimeError("FakeClock coordinators did not become idle")

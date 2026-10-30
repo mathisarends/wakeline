@@ -12,6 +12,8 @@ type Quiet = tuple[str, str]
 def _validate_quiet(quiet: Quiet | None) -> None:
     if quiet is not None:
         start, end = (time.fromisoformat(part) for part in quiet)
+        if start.second or start.microsecond or end.second or end.microsecond:
+            raise ValueError("Quiet hours use HH:MM precision")
         if start == end or start.tzinfo is not None or end.tzinfo is not None:
             raise ValueError("Quiet hours require two different local times without offsets")
 

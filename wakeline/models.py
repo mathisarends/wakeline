@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -85,12 +85,12 @@ class Spec:
     labels: Mapping[str, str] = field(default_factory=dict)
     params: object = None
     lane: str | None = None
-    yield_to: tuple[str, ...] = ()
+    yield_to: Sequence[str] = ()
     max_defer: Duration = "10m"
-    requires: tuple[Alive, ...] = ()
+    requires: Sequence[Alive] = ()
     overlap: Overlap | None = None
     catchup: Catchup | CatchupWindow | None = None
-    limits: tuple[str, ...] | None = None
+    limits: Sequence[str] | None = None
     poke: Poke = Poke.BUFFER_ONE
     pause_on_failure: int | None = None
 
@@ -148,6 +148,7 @@ class Run:
     reason: str | None = None
     error: str | None = None
     duration: float | None = None
+    generation: str | None = None
 
 
 @dataclass(frozen=True)

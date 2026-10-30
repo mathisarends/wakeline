@@ -1,4 +1,5 @@
 from .clock import Clock, FakeClock, SystemClock
+from .coordinator import Coordinator
 from .models import (
     Cause,
     Ctx,
@@ -25,6 +26,7 @@ __all__ = [
     "Clock",
     "Cron",
     "Ctx",
+    "Coordinator",
     "Every",
     "FakeClock",
     "Holder",
