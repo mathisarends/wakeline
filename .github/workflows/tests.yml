@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  quality:
+    name: Ruff, ty, docs, and pre-commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.6"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras
+      - name: Run repository checks
+        run: uv run --locked --no-sync pre-commit run --all-files --show-diff-on-failure
+      - name: Check Python and Markdown formatting
+        run: uv run --locked --no-sync ruff format --check .
+      - name: Build documentation with strict link checks
+        run: uv run --locked --no-sync mkdocs build --strict
+
+  tests:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12", "3.13", "3.14"]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win32
+          - os: macos-latest
+            platform: darwin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv and matrix Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.6"
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ matrix.os }}-${{ matrix.python }}
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras
+      # Check each target in addition to the portable baseline in pre-commit.
+      - name: Type check Python and platform APIs
+        run: >-
+          uv run --locked --no-sync ty check
+          --python-version ${{ matrix.python }}
+          --python-platform ${{ matrix.platform }}
+          --error-on-warning --output-format github
+      - name: Run tests and offline examples
+        run: uv run --locked --no-sync pytest --junitxml=build/test-results.xml
+      - name: Build distribution artifacts
+        run: uv build --no-sources
+      - name: Check the wheel outside the source checkout
+        run: uv run --locked --no-sync python scripts/check_wheel.py
+
+  postgres:
+    name: PostgreSQL / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: wakeline
+          POSTGRES_PASSWORD: wakeline
+          POSTGRES_DB: wakeline
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U wakeline"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      WAKELINE_POSTGRES_DSN: postgresql://wakeline:wakeline@localhost:5432/wakeline
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.6"
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras
+      - name: Exercise PostgreSQL CAS and competing coordinators
+        run: uv run --locked --no-sync pytest -m postgres --junitxml=build/postgres.xml

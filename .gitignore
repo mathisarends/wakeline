@@ -4,6 +4,7 @@ __pycache__/
 .uv-cache/
 .uv-python/
 .pytest_cache/
+.pre-commit-cache/
 .ruff_cache/
 .coverage
 htmlcov/

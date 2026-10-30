@@ -1,0 +1,35 @@
+site_name: wakeline
+site_description: An asyncio coordination layer for scheduled wakeups.
+repo_url: https://github.com/mathisarends/wakeline
+edit_uri: blob/main/docs/
+docs_dir: docs
+site_dir: build/docs
+strict: true
+theme:
+  name: mkdocs
+plugins:
+  - search
+markdown_extensions:
+  - fenced_code
+  - tables
+  - toc:
+      permalink: true
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    unrecognized_links: warn
+    anchors: warn
+nav:
+  - Overview: index.md
+  - Guides:
+      - Coordination and policies: coordination.md
+      - Persistence and leases: persistence.md
+      - Testing and time: testing.md
+      - Application integration: integration.md
+  - Reference: reference.md
+  - Design and validation: design.md
+  - Development: development.md
+  - Releases: releases.md
