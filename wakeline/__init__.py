@@ -1,3 +1,5 @@
+import logging
+
 from .clock import Clock, FakeClock, SystemClock
 from .coordinator import Coordinator
 from .models import (
@@ -9,6 +11,7 @@ from .models import (
     Rearm,
     ReconcileResult,
     Remove,
+    Result,
     Run,
     Spec,
     State,
@@ -17,6 +20,8 @@ from .models import (
 from .policies import Alive, Catchup, CatchupWindow, Overlap, Poke
 from .selectors import Sel
 from .triggers import Cron, Every, Once, Trigger, cron, every, once
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "Alive",
@@ -38,6 +43,7 @@ __all__ = [
     "Rearm",
     "ReconcileResult",
     "Remove",
+    "Result",
     "Run",
     "Sel",
     "Spec",

@@ -105,6 +105,8 @@ class Runtime:
         self._completions: deque[Completion] = deque()
         self._waiting: set[str] = set()
         self._versions: dict[str, str] = {}
+        self._leases: dict[str, Lease] = {}
+        self._wall_offset = clock.now().timestamp() - clock.monotonic()
         self._by_kind: dict[str, set[str]] = {}
         self._by_label: dict[tuple[str, str], set[str]] = {}
         self._wake = asyncio.Event()
@@ -160,6 +162,10 @@ class Runtime:
 
     def accept(self, key: str, cell: Cell, *, retry_at: float | None = None) -> None:
         self.ledger.replace(key, cell.runs)
+        if cell.lease is None:
+            self._leases.pop(key, None)
+        else:
+            self._leases[key] = cell.lease
         old = self.entries.get(key)
         if old is not None:
             self._index(key, old.instance, remove=True)
@@ -201,6 +207,11 @@ class Runtime:
         seen = set()
         for record in records:
             seen.add(record.key)
+            lease = self._leases.get(record.key)
+            if self._versions.get(record.key) == record.version and (
+                lease is None or lease.until > self.clock.now()
+            ):
+                continue
             cell = decode(record.value)
             if cell.instance is None and self.active(record.key):
                 self.cancel(record.key)
@@ -216,11 +227,15 @@ class Runtime:
             self.accept(key, Cell())
             self._versions.pop(key, None)
             self.cancel(key)
-        # Reproject absolute cron/once deadlines when wall time changes.
-        for key, entry in self.entries.items():
-            entry.timeline.sync(entry.instance, self.clock)
-            if key not in self._waiting:
-                self._enqueue(key, entry)
+        # Unchanged idle instances need neither JSON decoding nor new heap
+        # entries. Absolute deadlines only need reprojection after a wall shift.
+        wall_offset = self.clock.now().timestamp() - self.clock.monotonic()
+        if abs(wall_offset - self._wall_offset) > 0.01:
+            for key, entry in self.entries.items():
+                entry.timeline.sync(entry.instance, self.clock)
+                if key not in self._waiting:
+                    self._enqueue(key, entry)
+            self._wall_offset = wall_offset
         self._next_poll = self.clock.monotonic() + self.poll_interval
 
     def _recover(self, cell: Cell) -> None:
@@ -688,6 +703,13 @@ class Runtime:
                         State.PAUSED if instance.pause_reason is not None else State.SCHEDULED
                     )
                     instance.reason = instance.pause_reason
+                    if (
+                        instance.pause_reason is not None
+                        and instance.next_trigger is None
+                        and instance.rearm_at is None
+                        and not instance.pending
+                    ):
+                        instance.pending.append(Request(run.scheduled_for, run.cause, run.reason))
                     if (
                         instance.pause_reason is None
                         and not remaining

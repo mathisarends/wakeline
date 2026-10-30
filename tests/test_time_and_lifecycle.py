@@ -160,14 +160,22 @@ async def test_hooks_can_read_status_and_failure_is_isolated() -> None:
 async def test_pause_return_from_once_remains_visible() -> None:
     clock = FakeClock()
     coord = Coordinator(clock=clock)
+    paused = True
+    calls = []
 
     @coord.kind("job")
     async def job(ctx):
-        return Pause("manual decision needed")
+        calls.append(ctx)
+        return Pause("manual decision needed") if paused else None
 
     await coord.ensure(kind="job", key="j", trigger=once(after="1s"))
     await clock.advance("1s")
     assert (await coord.status())[0].state == State.PAUSED
+    paused = False
+    await coord.resume("j")
+    await coord.run_pending()
+    assert len(calls) == 2
+    assert await coord.count() == 0
     await coord.stop()
 
 

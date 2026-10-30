@@ -23,6 +23,11 @@ class Kind:
     decode: Decoder
 
 
+def validate_handler(handler: Handler) -> None:
+    if not inspect.iscoroutinefunction(handler):
+        raise TypeError("Wakeup handlers must be async functions")
+
+
 def decoder_for(handler: Handler) -> Decoder:
     try:
         annotations = get_type_hints(handler)

@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 from collections.abc import AsyncGenerator, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -9,7 +8,7 @@ from uuid import uuid4
 from ._time import Duration, seconds
 from .clock import Clock, FakeClock, SystemClock
 from .core.codec import decode_spec, spec_data, spec_hash
-from .core.registry import Decoder, Handler, Kind, decoder_for
+from .core.registry import Decoder, Handler, Kind, decoder_for, validate_handler
 from .core.runtime import RunHook, Runtime, StatusHook
 from .core.schedule import deadline
 from .core.state import Cell, Instance, Request
@@ -75,7 +74,7 @@ class Coordinator:
         self._runtime.limits[name] = max_concurrent
         self._runtime.reconsider()
 
-    def kind(
+    def kind[HandlerT: Handler](
         self,
         name: str,
         *,
@@ -84,17 +83,16 @@ class Coordinator:
         limits: Iterable[str] = (),
         pause_on_failure: int | None = None,
         decode_params: Decoder | None = None,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[HandlerT], HandlerT]:
         if not name:
             raise ValueError("Kind must not be empty")
         if pause_on_failure is not None and pause_on_failure < 1:
             raise ValueError("pause_on_failure must be positive")
 
-        def register(handler: Handler) -> Handler:
+        def register(handler: HandlerT) -> HandlerT:
             if name in self._runtime.kinds:
                 raise ValueError(f"Kind {name!r} is already registered")
-            if not inspect.iscoroutinefunction(handler):
-                raise TypeError("Wakeup handlers must be async functions")
+            validate_handler(handler)
             self._runtime.kinds[name] = Kind(
                 handler,
                 overlap,
@@ -113,7 +111,7 @@ class Coordinator:
 
         return register
 
-    def wakeup(
+    def wakeup[HandlerT: Handler](
         self,
         name: str,
         trigger: Trigger,
@@ -122,8 +120,8 @@ class Coordinator:
         overlap: Overlap = Overlap.SKIP,
         catchup: Catchup | CatchupWindow | None = None,
         limits: Iterable[str] = (),
-    ) -> Callable[[Handler], Handler]:
-        def register(handler: Handler) -> Handler:
+    ) -> Callable[[HandlerT], HandlerT]:
+        def register(handler: HandlerT) -> HandlerT:
             registered = self.kind(name, overlap=overlap, catchup=catchup, limits=limits)(handler)
             self._static.append(Spec(name, name, trigger, lane=lane))
             return registered
@@ -187,12 +185,18 @@ class Coordinator:
             await self._ensure(desired)
             return self._runtime.status(desired.key)
 
-    async def _ensure(self, spec: Spec) -> bool:
+    async def _ensure(self, spec: Spec, *, scope: Sel | None = None) -> bool:
         fingerprint = spec_hash(spec)
         now = self._clock.now()
 
         def change(cell: Cell) -> bool:
             old = cell.instance
+            if (
+                old is not None
+                and scope is not None
+                and not scope.matches(old.spec.kind, old.spec.labels)
+            ):
+                raise ValueError("Reconcile cannot overwrite an instance outside its scope")
             if old is not None and old.spec_hash == fingerprint:
                 return False
             nominal = first(spec.trigger, now)
@@ -269,14 +273,22 @@ class Coordinator:
                 await self._remove(key)
             return len(keys)
 
-    async def _remove(self, key: str) -> None:
-        def change(cell: Cell) -> None:
+    async def _remove(self, key: str, *, scope: Sel | None = None) -> bool:
+        def change(cell: Cell) -> bool:
+            if cell.instance is None:
+                return False
+            spec = cell.instance.spec
+            if scope is not None and not scope.matches(spec.kind, spec.labels):
+                return False
             cell.instance = None
+            return True
 
-        cell, _ = await self._runtime.repository.change(key, change)
+        cell, removed = await self._runtime.repository.change(key, change)
         self._runtime.accept(key, cell)
-        self._runtime.cancel(key)
+        if removed:
+            self._runtime.cancel(key)
         self._runtime.reconsider()
+        return removed
 
     def poke(self, selector: Sel | str, *, reason: str = "poke") -> asyncio.Task[int]:
         """Queue a poke immediately; optionally await the returned task for durability."""
@@ -348,16 +360,15 @@ class Coordinator:
                 raise ValueError("Reconcile cannot overwrite an instance outside its scope")
             created = updated = unchanged = 0
             for spec in specs:
-                changed = await self._ensure(spec)
+                changed = await self._ensure(spec, scope=scope)
                 if spec.key not in existing:
                     created += 1
                 elif changed:
                     updated += 1
                 else:
                     unchanged += 1
-            for key in existing - wanted:
-                await self._remove(key)
-            return ReconcileResult(created, updated, len(existing - wanted), unchanged)
+            removed = sum([await self._remove(key, scope=scope) for key in existing - wanted])
+            return ReconcileResult(created, updated, removed, unchanged)
 
     async def run_pending(self) -> None:
         """Run currently due work to quiescence without waiting for blocked handlers."""

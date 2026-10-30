@@ -199,3 +199,33 @@ async def test_graceful_stop_does_not_lose_in_flight_once() -> None:
     await second.run_pending()
     assert len(calls) == 1
     await second.stop()
+
+
+async def test_failed_completion_write_can_be_retried_without_reexecuting_handler() -> None:
+    class FailOnceStore(MemoryStore):
+        failed = False
+
+        async def put(self, key, value, *, expected):
+            if not self.failed and any(run.outcome == Outcome.OK for run in decode(value).runs):
+                self.failed = True
+                raise OSError("temporary disk failure")
+            return await super().put(key, value, expected=expected)
+
+    import pytest
+
+    clock = FakeClock()
+    store = FailOnceStore()
+    coord = Coordinator(clock=clock, store=store)
+    calls = []
+
+    @coord.kind("job")
+    async def job(ctx):
+        calls.append(ctx)
+
+    await coord.ensure(kind="job", key="j", trigger=once(after="1s"))
+    with pytest.raises(OSError, match="temporary disk failure"):
+        await clock.advance("1s")
+    await coord.run_pending()
+    assert len(calls) == 1
+    assert coord.ledger.last("j").outcome == Outcome.OK
+    await coord.stop()

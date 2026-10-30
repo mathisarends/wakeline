@@ -1,14 +1,11 @@
 import asyncio
 from collections.abc import Callable
 
+from wakeline.errors import ConflictError
 from wakeline.stores import Store, Stored
 
 from .codec import decode, encode
 from .state import Cell
-
-
-class ConflictError(RuntimeError):
-    """Too many concurrent writes to one instance; retry the operation."""
 
 
 class Repository:

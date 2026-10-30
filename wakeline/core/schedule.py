@@ -1,6 +1,7 @@
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Self
 
 from wakeline.clock import Clock
 from wakeline.models import Cause
@@ -30,7 +31,7 @@ class Timeline:
     rearm_mono: float | None
 
     @classmethod
-    def build(cls, instance: Instance, clock: Clock) -> "Timeline":
+    def build(cls, instance: Instance, clock: Clock) -> Self:
         result = cls(instance.generation, None, None, None, None)
         result.sync(instance, clock)
         return result

@@ -9,7 +9,7 @@ import pytest
 from wakeline.stores import MemoryStore, PostgresStore, SqliteStore, Store
 
 
-@pytest.fixture(params=["memory", "sqlite", "postgres"])
+@pytest.fixture(params=["memory", "sqlite", pytest.param("postgres", marks=pytest.mark.postgres)])
 async def store(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncGenerator[Store]:
     match request.param:
         case "sqlite":

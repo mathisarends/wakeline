@@ -1,4 +1,5 @@
 import asyncio
+import builtins
 import sqlite3
 import threading
 from collections.abc import Callable
@@ -60,7 +61,7 @@ class SqliteStore:
 
         return await asyncio.to_thread(lambda: self._locked(get))
 
-    async def list(self) -> list[Stored]:
+    async def list(self) -> builtins.list[Stored]:
         def read(connection: sqlite3.Connection) -> list[Stored]:
             return [
                 Stored(*row)

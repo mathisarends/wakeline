@@ -1,3 +1,4 @@
+import builtins
 from uuid import uuid4
 
 from .base import Stored
@@ -20,10 +21,14 @@ class PostgresStore:
             raise ImportError("Install wakeline[postgres] to use PostgresStore") from error
         pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=5)
         try:
-            await pool.execute(
-                "CREATE TABLE IF NOT EXISTS wakeline_records "
-                "(key TEXT PRIMARY KEY, version TEXT NOT NULL, value TEXT NOT NULL)"
-            )
+            async with pool.acquire() as connection:
+                async with connection.transaction():
+                    # IF NOT EXISTS alone can race on PostgreSQL catalog entries.
+                    await connection.execute("SELECT pg_advisory_xact_lock(8423567181307)")
+                    await connection.execute(
+                        "CREATE TABLE IF NOT EXISTS wakeline_records "
+                        "(key TEXT PRIMARY KEY, version TEXT NOT NULL, value TEXT NOT NULL)"
+                    )
         except BaseException:
             await pool.close()
             raise
@@ -42,7 +47,7 @@ class PostgresStore:
         )
         return None if row is None else Stored(row["key"], row["version"], row["value"])
 
-    async def list(self) -> list[Stored]:
+    async def list(self) -> builtins.list[Stored]:
         await self.open()
         assert self._pool is not None
         rows = await self._pool.fetch("SELECT key, version, value FROM wakeline_records")

@@ -1,3 +1,4 @@
+import builtins
 from uuid import uuid4
 
 from .base import Stored
@@ -18,7 +19,7 @@ class MemoryStore:
     async def get(self, key: str) -> Stored | None:
         return self._records.get(key)
 
-    async def list(self) -> list[Stored]:
+    async def list(self) -> builtins.list[Stored]:
         return list(self._records.values())
 
     async def put(self, key: str, value: str, *, expected: str | None) -> Stored | None:
